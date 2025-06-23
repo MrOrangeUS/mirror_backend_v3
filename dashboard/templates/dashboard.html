@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mirror.exe Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.2.31"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-white font-mono">
+    <div id="app" class="container mx-auto px-4 py-8">
+        <!-- Header with User Info -->
+        <header class="flex justify-between items-center mb-12">
+            <div>
+                <h1 class="text-4xl font-bold mb-2">Mirror.exe Dashboard</h1>
+                <p class="text-gray-400">Real-time monitoring and analytics</p>
+            </div>
+            <div class="text-right">
+                <p class="text-gray-400">Welcome, [[ user ]]</p>
+                <button @click="logout" class="text-red-400 hover:text-red-300">Logout</button>
+            </div>
+        </header>
+
+        <!-- Status Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-gray-800 rounded-lg p-6" v-for="stat in status" :key="stat.label">
+                <h3 class="text-gray-400 text-sm mb-2">[[ stat.label ]]</h3>
+                <p class="text-2xl font-bold" :class="stat.color">[[ stat.value ]]</p>
+            </div>
+        </div>
+
+        <!-- Main Charts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <!-- Response Rate Chart -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-xl mb-4">Response Rate</h3>
+                <canvas id="responseChart"></canvas>
+            </div>
+            <!-- API Performance Chart -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-xl mb-4">API Performance</h3>
+                <canvas id="apiChart"></canvas>
+            </div>
+            <!-- User Activity Timeline -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-xl mb-4">User Activity</h3>
+                <div id="userActivityChart"></div>
+            </div>
+            <!-- Latency Trends -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-xl mb-4">API Latency Trends</h3>
+                <div id="latencyChart"></div>
+            </div>
+        </div>
+
+        <!-- Recent Activity and Cache Stats -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <!-- Recent Activity -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-xl mb-4">Recent Activity</h3>
+                <div class="space-y-4 max-h-96 overflow-y-auto">
+                    <div v-for="activity in recentActivity" :key="activity.id" 
+                         class="flex items-center justify-between p-4 bg-gray-700 rounded">
+                        <div>
+                            <p class="text-sm text-gray-300">[[ activity.timestamp ]]</p>
+                            <p>[[ activity.message ]]</p>
+                        </div>
+                        <span :class="activity.status === 'success' ? 'text-green-400' : 'text-red-400'">
+                            [[ activity.status ]]
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <!-- Cache Statistics -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h3 class="text-xl mb-4">Cache Statistics</h3>
+                <div class="space-y-4">
+                    <div class="bg-gray-700 rounded p-4">
+                        <h4 class="text-lg mb-2">Cache Hit Rate</h4>
+                        <div class="w-full bg-gray-600 rounded-full h-4">
+                            <div class="bg-green-500 rounded-full h-4"
+                                 :style="{ width: cacheHitRate + '%' }"></div>
+                        </div>
+                        <p class="mt-2 text-right">[[ cacheHitRate ]]%</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-gray-700 rounded p-4">
+                            <h4 class="text-sm text-gray-400">Cache Size</h4>
+                            <p class="text-xl">[[ cacheSize ]] MB</p>
+                        </div>
+                        <div class="bg-gray-700 rounded p-4">
+                            <h4 class="text-sm text-gray-400">Files Cached</h4>
+                            <p class="text-xl">[[ cachedFiles ]]</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Configuration -->
+        <div class="bg-gray-800 rounded-lg p-6">
+            <h3 class="text-xl mb-4">Configuration</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div v-for="(section, name) in config" :key="name">
+                    <h4 class="text-lg mb-2 text-gray-300">[[ name ]]</h4>
+                    <div class="space-y-2">
+                        <div v-for="(value, key) in section" :key="key" 
+                             class="flex justify-between">
+                            <span class="text-gray-400">[[ key ]]:</span>
+                            <span>[[ value ]]</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Logic -->
+    <script>
+        const { createApp } = Vue
+
+        createApp({
+            delimiters: ['[[', ']]'],
+            data() {
+                return {
+                    user: '{{ user.username }}',
+                    status: {
+                        connection: { label: 'Connection', value: 'Connected', color: 'text-green-400' },
+                        uptime: { label: 'Uptime', value: '0h 0m', color: 'text-blue-400' },
+                        users: { label: 'Total Users', value: '0', color: 'text-purple-400' },
+                        responses: { label: 'Total Responses', value: '0', color: 'text-yellow-400' }
+                    },
+                    config: {},
+                    recentActivity: [],
+                    charts: {
+                        response: null,
+                        api: null,
+                        userActivity: null,
+                        latency: null
+                    },
+                    cacheHitRate: 0,
+                    cacheSize: 0,
+                    cachedFiles: 0,
+                    ws: null
+                }
+            },
+            methods: {
+                initWebSocket() {
+                    this.ws = new WebSocket(`ws://${window.location.host}/ws`)
+                    this.ws.onmessage = (event) => {
+                        const data = JSON.parse(event.data)
+                        if (data.type === 'update') {
+                            this.updateDashboard(data)
+                        }
+                    }
+                    this.ws.onclose = () => {
+                        setTimeout(() => this.initWebSocket(), 1000)
+                    }
+                },
+                updateDashboard(data) {
+                    // Update status
+                    this.status.connection.value = data.status.is_connected ? 'Connected' : 'Disconnected'
+                    this.status.connection.color = data.status.is_connected ? 'text-green-400' : 'text-red-400'
+                    this.status.uptime.value = data.status.uptime
+                    this.status.users.value = data.status.total_users
+                    this.status.responses.value = data.status.total_responses
+
+                    // Update charts
+                    this.updateCharts(data.metrics)
+
+                    // Update cache stats
+                    this.cacheHitRate = data.metrics.cache_hit_rate
+                },
+                async fetchConfig() {
+                    const response = await fetch('/api/config', {
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        }
+                    })
+                    this.config = await response.json()
+                },
+                initCharts() {
+                    // Response rate chart
+                    this.charts.response = new Chart(
+                        document.getElementById('responseChart'),
+                        {
+                            type: 'doughnut',
+                            data: {
+                                labels: ['Responses', 'Missed'],
+                                datasets: [{
+                                    data: [0, 100],
+                                    backgroundColor: ['#34D399', '#374151']
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                plugins: {
+                                    legend: {
+                                        position: 'bottom',
+                                        labels: { color: '#D1D5DB' }
+                                    }
+                                }
+                            }
+                        }
+                    )
+
+                    // API performance chart
+                    this.charts.api = new Chart(
+                        document.getElementById('apiChart'),
+                        {
+                            type: 'bar',
+                            data: {
+                                labels: ['GPT', 'TTS'],
+                                datasets: [{
+                                    label: 'Success Rate',
+                                    data: [0, 0],
+                                    backgroundColor: ['#60A5FA', '#F472B6']
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        max: 100,
+                                        ticks: { color: '#D1D5DB' }
+                                    },
+                                    x: {
+                                        ticks: { color: '#D1D5DB' }
+                                    }
+                                },
+                                plugins: {
+                                    legend: {
+                                        labels: { color: '#D1D5DB' }
+                                    }
+                                }
+                            }
+                        }
+                    )
+
+                    // User activity timeline
+                    this.charts.userActivity = Plotly.newPlot('userActivityChart', [{
+                        x: [],
+                        y: [],
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Active Users',
+                        line: { color: '#8B5CF6' }
+                    }], {
+                        paper_bgcolor: 'rgba(0,0,0,0)',
+                        plot_bgcolor: 'rgba(0,0,0,0)',
+                        font: { color: '#D1D5DB' },
+                        xaxis: {
+                            gridcolor: '#374151',
+                            title: 'Time'
+                        },
+                        yaxis: {
+                            gridcolor: '#374151',
+                            title: 'Users'
+                        }
+                    })
+
+                    // Latency trends
+                    this.charts.latency = Plotly.newPlot('latencyChart', [{
+                        x: [],
+                        y: [],
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'GPT Latency',
+                        line: { color: '#60A5FA' }
+                    }, {
+                        x: [],
+                        y: [],
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'TTS Latency',
+                        line: { color: '#F472B6' }
+                    }], {
+                        paper_bgcolor: 'rgba(0,0,0,0)',
+                        plot_bgcolor: 'rgba(0,0,0,0)',
+                        font: { color: '#D1D5DB' },
+                        xaxis: {
+                            gridcolor: '#374151',
+                            title: 'Time'
+                        },
+                        yaxis: {
+                            gridcolor: '#374151',
+                            title: 'Latency (ms)'
+                        }
+                    })
+                },
+                updateCharts(data) {
+                    // Update response rate chart
+                    this.charts.response.data.datasets[0].data = [
+                        data.chat_response_rate,
+                        100 - data.chat_response_rate
+                    ]
+                    this.charts.response.update()
+
+                    // Update API performance chart
+                    this.charts.api.data.datasets[0].data = [
+                        data.gpt_success_rate,
+                        data.tts_success_rate
+                    ]
+                    this.charts.api.update()
+
+                    // Update user activity timeline
+                    Plotly.extendTraces('userActivityChart', {
+                        x: [[new Date()]],
+                        y: [[data.unique_users]]
+                    }, [0])
+
+                    // Update latency trends
+                    Plotly.extendTraces('latencyChart', {
+                        x: [[new Date()], [new Date()]],
+                        y: [[data.average_gpt_latency], [data.average_tts_latency]]
+                    }, [0, 1])
+                },
+                logout() {
+                    localStorage.removeItem('token')
+                    window.location.href = '/login'
+                }
+            },
+            async mounted() {
+                this.initCharts()
+                await this.fetchConfig()
+                this.initWebSocket()
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html> 
